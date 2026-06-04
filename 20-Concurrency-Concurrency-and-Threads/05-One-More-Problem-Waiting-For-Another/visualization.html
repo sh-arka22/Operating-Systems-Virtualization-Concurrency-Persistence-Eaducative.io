@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thread Synchronization Visualizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: #1a2236;
+            --bg-card-hover: #1e2842;
+            --border: #2a3654;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #a78bfa;
+            --accent-green: #34d399;
+            --accent-red: #f87171;
+            --accent-orange: #fb923c;
+            --accent-yellow: #fbbf24;
+            --accent-cyan: #22d3ee;
+            --glow-blue: rgba(59, 130, 246, 0.3);
+            --glow-purple: rgba(167, 139, 250, 0.3);
+            --glow-green: rgba(52, 211, 153, 0.3);
+            --glow-red: rgba(248, 113, 113, 0.3);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Background effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: 
+                radial-gradient(ellipse at 20% 20%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(167, 139, 250, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+        }
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        /* Scenario selector */
+        .scenario-selector {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .scenario-btn {
+            padding: 10px 24px;
+            border-radius: 12px;
+            border: 1.5px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .scenario-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+            background: var(--bg-card-hover);
+        }
+        .scenario-btn.active {
+            border-color: var(--accent-blue);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(167, 139, 250, 0.1));
+            color: var(--accent-blue);
+            box-shadow: 0 0 20px var(--glow-blue);
+        }
+
+        /* Main layout */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 200px 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+            align-items: start;
+        }
+
+        /* Code panels */
+        .code-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: box-shadow 0.4s ease;
+        }
+        .code-panel.active-thread {
+            box-shadow: 0 0 30px var(--glow-blue);
+            border-color: var(--accent-blue);
+        }
+        .code-panel.parent-active {
+            box-shadow: 0 0 30px var(--glow-blue);
+            border-color: var(--accent-blue);
+        }
+        .code-panel.child-active {
+            box-shadow: 0 0 30px var(--glow-purple);
+            border-color: var(--accent-purple);
+        }
+
+        .panel-header {
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .panel-header .dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+        .parent-panel .dot { background: var(--accent-blue); }
+        .child-panel .dot { background: var(--accent-purple); }
+        .panel-header .label {
+            font-weight: 700;
+            font-size: 0.9rem;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .parent-panel .label { color: var(--accent-blue); }
+        .child-panel .label { color: var(--accent-purple); }
+
+        .panel-header .status {
+            margin-left: auto;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+        }
+        .status-running { background: rgba(52, 211, 153, 0.15); color: var(--accent-green); }
+        .status-sleeping { background: rgba(251, 191, 36, 0.15); color: var(--accent-yellow); }
+        .status-waiting { background: rgba(248, 113, 113, 0.15); color: var(--accent-red); }
+        .status-done { background: rgba(100, 116, 139, 0.15); color: var(--text-muted); }
+        .status-idle { background: rgba(100, 116, 139, 0.1); color: var(--text-muted); }
+
+        .code-body {
+            padding: 16px 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            line-height: 1.8;
+        }
+
+        .code-line {
+            padding: 2px 20px;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease;
+            position: relative;
+            min-height: 28px;
+        }
+        .code-line .line-num {
+            color: var(--text-muted);
+            width: 28px;
+            text-align: right;
+            margin-right: 16px;
+            font-size: 0.75rem;
+            user-select: none;
+            flex-shrink: 0;
+        }
+        .code-line .line-content {
+            flex: 1;
+            white-space: pre;
+        }
+
+        /* Lock indicator on a line */
+        .code-line .lock-badge {
+            position: absolute;
+            right: 12px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            opacity: 0;
+            transform: translateX(10px);
+            transition: all 0.3s ease;
+        }
+        .code-line .lock-badge.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .lock-badge.has-lock {
+            background: rgba(52, 211, 153, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+        }
+        .lock-badge.no-lock {
+            background: rgba(248, 113, 113, 0.15);
+            color: var(--accent-red);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+        }
+        .lock-badge.waiting-lock {
+            background: rgba(251, 191, 36, 0.15);
+            color: var(--accent-yellow);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+
+        /* Highlighted line */
+        .code-line.highlight-exec {
+            background: rgba(59, 130, 246, 0.12);
+            border-left: 3px solid var(--accent-blue);
+        }
+        .code-line.highlight-exec-child {
+            background: rgba(167, 139, 250, 0.12);
+            border-left: 3px solid var(--accent-purple);
+        }
+        .code-line.highlight-done {
+            background: rgba(52, 211, 153, 0.08);
+        }
+        .code-line.highlight-sleep {
+            background: rgba(251, 191, 36, 0.08);
+            border-left: 3px solid var(--accent-yellow);
+        }
+
+        /* Syntax highlighting */
+        .kw { color: #c792ea; }
+        .fn { color: #82aaff; }
+        .str { color: #c3e88d; }
+        .num { color: #f78c6c; }
+        .cmt { color: #546e7a; font-style: italic; }
+        .var { color: #f0f0f0; }
+        .op { color: #89ddff; }
+        .type { color: #ffcb6b; }
+        .addr { color: #ff5370; }
+
+        /* Shared state panel */
+        .shared-state {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            position: sticky;
+            top: 24px;
+        }
+
+        .state-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            text-align: center;
+            transition: all 0.4s ease;
+        }
+        .state-card .state-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .state-card .state-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.3rem;
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+        .state-card .state-detail {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        .state-card.mutex-locked {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 20px var(--glow-green);
+        }
+        .state-card.mutex-unlocked {
+            border-color: var(--border);
+        }
+        .state-card.done-true {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 15px var(--glow-green);
+        }
+        .state-card.cond-signaled {
+            border-color: var(--accent-orange);
+            box-shadow: 0 0 15px rgba(251, 146, 60, 0.3);
+        }
+
+        /* Console output */
+        .console-card {
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+        }
+        .console-card .state-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .console-output {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-green);
+            min-height: 50px;
+            line-height: 1.6;
+        }
+        .console-output .console-line {
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.3s ease;
+        }
+        .console-output .console-line.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .control-btn {
+            width: 48px; height: 48px;
+            border-radius: 14px;
+            border: 1.5px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .control-btn:hover:not(:disabled) {
+            border-color: var(--accent-blue);
+            background: var(--bg-card-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px var(--glow-blue);
+        }
+        .control-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .control-btn.play-btn {
+            width: 56px; height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border: none;
+            font-size: 1.4rem;
+            box-shadow: 0 4px 20px var(--glow-blue);
+        }
+        .control-btn.play-btn:hover:not(:disabled) {
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 6px 30px var(--glow-blue);
+        }
+
+        .step-counter {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            background: var(--bg-card);
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            min-width: 110px;
+            text-align: center;
+        }
+
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        .speed-control input[type="range"] {
+            width: 80px;
+            accent-color: var(--accent-blue);
+        }
+
+        /* Explanation panel */
+        .explanation-panel {
+            background: var(--bg-card);
+            border: 1.5px solid var(--border);
+            border-radius: 16px;
+            padding: 24px 28px;
+            min-height: 120px;
+            transition: all 0.4s ease;
+        }
+        .explanation-panel.highlight-why {
+            border-color: var(--accent-orange);
+            box-shadow: 0 0 25px rgba(251, 146, 60, 0.15);
+        }
+        .explanation-panel .exp-title {
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .explanation-panel .exp-body {
+            font-size: 0.92rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+        .explanation-panel .exp-body strong {
+            color: var(--text-primary);
+        }
+        .explanation-panel .exp-body code {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(59, 130, 246, 0.1);
+            padding: 2px 7px;
+            border-radius: 5px;
+            font-size: 0.85em;
+            color: var(--accent-cyan);
+        }
+        .exp-tag {
+            display: inline-block;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 3px 8px;
+            border-radius: 6px;
+        }
+        .tag-lock { background: rgba(52, 211, 153, 0.15); color: var(--accent-green); }
+        .tag-unlock { background: rgba(248, 113, 113, 0.15); color: var(--accent-red); }
+        .tag-concept { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+        .tag-danger { background: rgba(248, 113, 113, 0.15); color: var(--accent-red); }
+        .tag-key { background: rgba(251, 191, 36, 0.15); color: var(--accent-yellow); }
+
+        /* Progress bar */
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 4px;
+            transition: width 0.4s ease;
+        }
+
+        /* Arrow between threads */
+        .arrow-overlay {
+            position: absolute;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Responsive */
+        @media (max-width: 1100px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            .shared-state {
+                flex-direction: row;
+                flex-wrap: wrap;
+                position: static;
+            }
+            .state-card { flex: 1; min-width: 140px; }
+        }
+
+        /* Animations */
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px var(--glow-blue); }
+            50% { box-shadow: 0 0 30px var(--glow-blue); }
+        }
+        @keyframes slide-in {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .explanation-panel {
+            animation: slide-in 0.3s ease;
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+        .legend-swatch {
+            width: 14px; height: 14px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔒 Thread Synchronization Step-by-Step</h1>
+            <p>Watch how mutex, condition variable, and the done flag work together</p>
+        </div>
+
+        <div class="scenario-selector">
+            <button class="scenario-btn active" data-scenario="normal" onclick="switchScenario('normal')">
+                ✅ Scenario 1: Parent Waits First
+            </button>
+            <button class="scenario-btn" data-scenario="child-first" onclick="switchScenario('child-first')">
+                ⚡ Scenario 2: Child Runs First
+            </button>
+            <button class="scenario-btn" data-scenario="no-done" onclick="switchScenario('no-done')">
+                💀 Bug: Without done Flag
+            </button>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-swatch" style="background: rgba(59,130,246,0.3); border: 1px solid var(--accent-blue);"></div>
+                Parent executing
+            </div>
+            <div class="legend-item">
+                <div class="legend-swatch" style="background: rgba(167,139,250,0.3); border: 1px solid var(--accent-purple);"></div>
+                Child executing
+            </div>
+            <div class="legend-item">
+                <div class="legend-swatch" style="background: rgba(251,191,36,0.2); border: 1px solid var(--accent-yellow);"></div>
+                Sleeping / Waiting
+            </div>
+            <div class="legend-item">
+                <div class="legend-swatch" style="background: rgba(52,211,153,0.2); border: 1px solid var(--accent-green);"></div>
+                Completed
+            </div>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <div class="controls">
+            <button class="control-btn" id="resetBtn" onclick="resetSteps()" title="Reset">⏮</button>
+            <button class="control-btn" id="prevBtn" onclick="prevStep()" title="Previous Step">◀</button>
+            <button class="control-btn play-btn" id="playBtn" onclick="toggleAutoPlay()" title="Auto Play">▶</button>
+            <button class="control-btn" id="nextBtn" onclick="nextStep()" title="Next Step">▶</button>
+            <button class="control-btn" id="endBtn" onclick="goToEnd()" title="Go to End">⏭</button>
+            <div class="step-counter" id="stepCounter">Step 0 / 0</div>
+            <div class="speed-control">
+                <span>🐢</span>
+                <input type="range" id="speedSlider" min="500" max="3000" value="1500" step="100">
+                <span>🐇</span>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <!-- Parent Thread Panel -->
+            <div class="code-panel parent-panel" id="parentPanel">
+                <div class="panel-header">
+                    <div class="dot"></div>
+                    <span class="label">Parent Thread (main)</span>
+                    <span class="status status-idle" id="parentStatus">IDLE</span>
+                </div>
+                <div class="code-body" id="parentCode"></div>
+            </div>
+
+            <!-- Shared State -->
+            <div class="shared-state">
+                <div class="state-card" id="mutexCard">
+                    <div class="state-label">Mutex (m)</div>
+                    <div class="state-value" id="mutexValue">🔓</div>
+                    <div class="state-detail" id="mutexDetail">Unlocked</div>
+                </div>
+                <div class="state-card" id="doneCard">
+                    <div class="state-label">done</div>
+                    <div class="state-value" id="doneValue" style="color: var(--accent-red);">0</div>
+                    <div class="state-detail" id="doneDetail">Child NOT finished</div>
+                </div>
+                <div class="state-card" id="condCard">
+                    <div class="state-label">Cond Var (c)</div>
+                    <div class="state-value" id="condValue">😴</div>
+                    <div class="state-detail" id="condDetail">No one waiting</div>
+                </div>
+                <div class="console-card">
+                    <div class="state-label">Console Output</div>
+                    <div class="console-output" id="consoleOutput"></div>
+                </div>
+            </div>
+
+            <!-- Child Thread Panel -->
+            <div class="code-panel child-panel" id="childPanel">
+                <div class="panel-header">
+                    <div class="dot"></div>
+                    <span class="label">Child Thread</span>
+                    <span class="status status-idle" id="childStatus">NOT CREATED</span>
+                </div>
+                <div class="code-body" id="childCode"></div>
+            </div>
+        </div>
+
+        <div class="explanation-panel" id="explanationPanel">
+            <div class="exp-title" id="expTitle">👋 Press ▶ or click Next to begin</div>
+            <div class="exp-body" id="expBody">
+                This visualizer will walk you through the code <strong>line by line</strong>, showing you exactly when the mutex is locked, who holds it, and why the <code>done</code> flag is essential. Choose a scenario above to see different execution orderings.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // CODE LINES
+        // ============================================================
+        const parentLines = [
+            { num: 1, code: '<span class="kw">int</span> <span class="fn">main</span>() {' },
+            { num: 2, code: '  <span class="fn">printf</span>(<span class="str">"parent: begin\\n"</span>);' },
+            { num: 3, code: '  <span class="type">pthread_t</span> <span class="var">p</span>;' },
+            { num: 4, code: '  <span class="fn">pthread_create</span>(<span class="addr">&p</span>, NULL, child, NULL);' },
+            { num: 5, code: '' },
+            { num: 6, code: '  <span class="cmt">// --- thr_join() ---</span>' },
+            { num: 7, code: '  <span class="fn">pthread_mutex_lock</span>(<span class="addr">&m</span>);' },
+            { num: 8, code: '  <span class="kw">while</span> (<span class="var">done</span> <span class="op">==</span> <span class="num">0</span>)' },
+            { num: 9, code: '    <span class="fn">pthread_cond_wait</span>(<span class="addr">&c</span>, <span class="addr">&m</span>);' },
+            { num: 10, code: '  <span class="cmt">// woke up! re-check done...</span>' },
+            { num: 11, code: '  <span class="kw">while</span> (<span class="var">done</span> <span class="op">==</span> <span class="num">0</span>) <span class="cmt">// recheck</span>' },
+            { num: 12, code: '  <span class="fn">pthread_mutex_unlock</span>(<span class="addr">&m</span>);' },
+            { num: 13, code: '' },
+            { num: 14, code: '  <span class="fn">printf</span>(<span class="str">"parent: end\\n"</span>);' },
+            { num: 15, code: '  <span class="kw">return</span> <span class="num">0</span>;' },
+            { num: 16, code: '}' },
+        ];
+
+        const childLines = [
+            { num: 1, code: '<span class="kw">void</span> <span class="op">*</span><span class="fn">child</span>(<span class="kw">void</span> <span class="op">*</span><span class="var">arg</span>) {' },
+            { num: 2, code: '  <span class="fn">printf</span>(<span class="str">"child\\n"</span>);' },
+            { num: 3, code: '' },
+            { num: 4, code: '  <span class="cmt">// --- thr_exit() ---</span>' },
+            { num: 5, code: '  <span class="fn">pthread_mutex_lock</span>(<span class="addr">&m</span>);' },
+            { num: 6, code: '  <span class="var">done</span> <span class="op">=</span> <span class="num">1</span>;' },
+            { num: 7, code: '  <span class="fn">pthread_cond_signal</span>(<span class="addr">&c</span>);' },
+            { num: 8, code: '  <span class="fn">pthread_mutex_unlock</span>(<span class="addr">&m</span>);' },
+            { num: 9, code: '' },
+            { num: 10, code: '  <span class="kw">return</span> NULL;' },
+            { num: 11, code: '}' },
+        ];
+
+        // ============================================================
+        // SCENARIOS — each step = { parent, child, mutex, done, cond, console, title, body, tag, tagClass }
+        // parent/child = { line: 1-indexed, highlight: 'exec'|'sleep'|'done'|null, lockBadge: 'has-lock'|'no-lock'|'waiting-lock'|null }
+        // ============================================================
+
+        const scenarios = {
+            'normal': {
+                name: 'Parent Waits First (Normal)',
+                steps: [
+                    {
+                        parentHL: { line: 1, hl: 'exec' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['NOT CREATED', 'status-idle'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting', ''], console: [],
+                        title: '🚀 Program starts', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'The <code>main()</code> function begins execution on the <strong>parent thread</strong>. The shared state is initialized: <code>done = 0</code>, mutex is unlocked, condition variable is idle.'
+                    },
+                    {
+                        parentHL: { line: 2, hl: 'exec' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['NOT CREATED', 'status-idle'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin'],
+                        title: '🖨️ Print "parent: begin"', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'Parent prints its start message. At this point, <strong>only one thread exists</strong>. No synchronization needed yet.'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'exec' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['CREATED', 'status-running'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin'],
+                        title: '🧵 pthread_create — child thread spawned', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'A <strong>new thread</strong> is created. The child thread now exists and can run at <em>any time</em> — it might run before or after the parent\'s next line. The OS scheduler decides. In this scenario, the <strong>parent continues first</strong>.'
+                    },
+                    {
+                        parentHL: { line: 7, hl: 'exec', lockBadge: 'has-lock' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['WAITING', 'status-waiting'],
+                        mutex: ['🔒', 'Locked by PARENT', 'mutex-locked'], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting yet', ''], console: ['parent: begin'],
+                        title: '🔒 Parent LOCKS the mutex', tag: 'LOCK', tagClass: 'tag-lock',
+                        body: 'Parent calls <code>pthread_mutex_lock(&m)</code>. The mutex was free, so it <strong>acquires it immediately</strong>. Now the parent holds the lock — if the child tries to lock the same mutex, it will <strong>block</strong> until parent releases it. <br><br><strong>WHY?</strong> We need to check <code>done</code> and potentially call <code>cond_wait</code> as one atomic operation. Without the lock, the child could change <code>done</code> between our check and our wait!'
+                    },
+                    {
+                        parentHL: { line: 8, hl: 'exec', lockBadge: 'has-lock' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['WAITING', 'status-waiting'],
+                        mutex: ['🔒', 'Locked by PARENT', 'mutex-locked'], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'About to wait...', ''], console: ['parent: begin'],
+                        title: '🔍 Check: done == 0?  → YES', tag: 'KEY', tagClass: 'tag-key',
+                        body: '<strong>This is the critical check!</strong> Parent reads <code>done</code> and finds it\'s <code>0</code>. This means the child <strong>hasn\'t finished yet</strong>. So we need to wait.<br><br><strong>WHY <code>while</code> not <code>if</code>?</strong> Because <code>cond_wait</code> can wake up <em>spuriously</em> (without being signaled). The <code>while</code> loop re-checks after every wakeup to make sure the child actually finished.'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep', lockBadge: 'waiting-lock' }, childHL: null,
+                        parentStatus: ['💤 SLEEPING', 'status-sleeping'], childStatus: ['READY', 'status-running'],
+                        mutex: ['🔓', 'Released by cond_wait!', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['⏳', 'Parent is waiting', 'cond-signaled'], console: ['parent: begin'],
+                        title: '😴 cond_wait — Parent SLEEPS (and releases lock!)', tag: 'KEY', tagClass: 'tag-key',
+                        body: '<code>pthread_cond_wait(&c, &m)</code> does <strong>THREE things atomically</strong>:<br><br>1️⃣ <strong>Releases the mutex</strong> — so the child can acquire it<br>2️⃣ <strong>Puts the parent to sleep</strong> — uses zero CPU, very efficient<br>3️⃣ <strong>When woken up later, re-acquires the mutex</strong> before returning<br><br>The atomicity of steps 1 & 2 is critical. If they weren\'t atomic, the child could signal between the unlock and the sleep, and we\'d miss it forever!'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep' },
+                        childHL: { line: 2, hl: 'exec-child' },
+                        parentStatus: ['💤 SLEEPING', 'status-sleeping'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔓', 'Unlocked (parent released)', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['⏳', 'Parent is waiting', 'cond-signaled'], console: ['parent: begin', 'child'],
+                        title: '🧵 Child runs — prints "child"', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'The child thread starts executing. It prints <code>"child"</code>. The parent is sleeping — it can\'t interfere. Now the child needs to <strong>signal</strong> the parent that it\'s done.'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep' },
+                        childHL: { line: 5, hl: 'exec-child', lockBadge: 'has-lock' },
+                        parentStatus: ['💤 SLEEPING', 'status-sleeping'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔒', 'Locked by CHILD', 'mutex-locked'], done: [0, 'Child NOT finished', ''],
+                        cond: ['⏳', 'Parent is waiting', 'cond-signaled'], console: ['parent: begin', 'child'],
+                        title: '🔒 Child LOCKS the mutex', tag: 'LOCK', tagClass: 'tag-lock',
+                        body: 'Child calls <code>pthread_mutex_lock(&m)</code>. The mutex was free (parent released it in <code>cond_wait</code>), so the child <strong>acquires it immediately</strong>.<br><br><strong>WHY does the child need the lock?</strong> To safely modify <code>done</code> and signal the condition variable. Without the lock, the modification could race with the parent\'s check.'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep' },
+                        childHL: { line: 6, hl: 'exec-child', lockBadge: 'has-lock' },
+                        parentStatus: ['💤 SLEEPING', 'status-sleeping'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔒', 'Locked by CHILD', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['⏳', 'Parent is waiting', 'cond-signaled'], console: ['parent: begin', 'child'],
+                        title: '✅ done = 1 — Flag is SET', tag: 'KEY', tagClass: 'tag-key',
+                        body: 'The child sets <code>done = 1</code>. This is the <strong>persistent state</strong> that records "I\'m finished." This is crucial because condition variable signals are <em>fire-and-forget</em> — if nobody is waiting when you signal, the signal is lost. The <code>done</code> flag <strong>remembers</strong> the event.'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep' },
+                        childHL: { line: 7, hl: 'exec-child', lockBadge: 'has-lock' },
+                        parentStatus: ['💤 → 🔔 WAKING!', 'status-running'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔒', 'Locked by CHILD', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['📢', 'SIGNAL sent!', 'cond-signaled'], console: ['parent: begin', 'child'],
+                        title: '📢 cond_signal — Wake the parent!', tag: 'KEY', tagClass: 'tag-key',
+                        body: '<code>pthread_cond_signal(&c)</code> sends a <strong>wake-up signal</strong> to the parent thread that\'s sleeping in <code>cond_wait</code>. The parent is now <em>marked to wake up</em>, but it can\'t actually run yet — it needs to re-acquire the mutex first, and the child still holds it!'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep' },
+                        childHL: { line: 8, hl: 'exec-child', lockBadge: 'no-lock' },
+                        parentStatus: ['WAKING UP...', 'status-running'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔓→🔒', 'Child unlocked → Parent re-acquiring', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['📢', 'Signal delivered', 'cond-signaled'], console: ['parent: begin', 'child'],
+                        title: '🔓 Child UNLOCKS the mutex', tag: 'UNLOCK', tagClass: 'tag-unlock',
+                        body: 'Child calls <code>pthread_mutex_unlock(&m)</code>. Now the parent can <strong>re-acquire the mutex</strong> (remember: <code>cond_wait</code> re-locks the mutex before returning). The parent is about to wake up fully!'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['WAKING UP...', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔒', 'Locked by PARENT (re-acquired)', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['✅', 'Signal consumed', ''], console: ['parent: begin', 'child'],
+                        title: '🧵 Child returns — thread finishes', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'The child thread is done. It returns <code>NULL</code> and the thread exits. Meanwhile, <code>cond_wait</code> in the parent has <strong>re-acquired the mutex</strong> and is about to return.'
+                    },
+                    {
+                        parentHL: { line: 11, hl: 'exec', lockBadge: 'has-lock' }, childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔒', 'Locked by PARENT', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['✅', 'Completed', ''], console: ['parent: begin', 'child'],
+                        title: '🔍 Re-check: done == 0?  → NO! ✅', tag: 'KEY', tagClass: 'tag-key',
+                        body: 'Parent woke up and the <code>while</code> loop re-checks <code>done</code>. It\'s <code>1</code> now! The condition is <strong>false</strong>, so we <strong>exit the loop</strong>. This re-check protects against spurious wakeups — if we used <code>if</code> instead of <code>while</code>, a spurious wakeup could cause us to proceed even though the child isn\'t done.'
+                    },
+                    {
+                        parentHL: { line: 12, hl: 'exec', lockBadge: 'no-lock' }, childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['✅', 'Completed', ''], console: ['parent: begin', 'child'],
+                        title: '🔓 Parent UNLOCKS the mutex', tag: 'UNLOCK', tagClass: 'tag-unlock',
+                        body: 'Parent releases the mutex. Synchronization is complete! We now <strong>know for certain</strong> that the child has finished, because we checked <code>done == 1</code> while holding the lock.'
+                    },
+                    {
+                        parentHL: { line: 14, hl: 'exec' }, childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['✅', 'Completed', ''], console: ['parent: begin', 'child', 'parent: end'],
+                        title: '🖨️ Print "parent: end" — SUCCESS!', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: '🎉 <strong>Parent prints AFTER the child</strong> — exactly what we wanted! The output is guaranteed to be:<br><code>parent: begin</code> → <code>child</code> → <code>parent: end</code><br><br>Without synchronization, <code>"parent: end"</code> could have printed before <code>"child"</code>!'
+                    },
+                ]
+            },
+
+            'child-first': {
+                name: 'Child Runs First',
+                steps: [
+                    {
+                        parentHL: { line: 2, hl: 'exec' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['NOT CREATED', 'status-idle'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin'],
+                        title: '🚀 Parent starts, prints "parent: begin"', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'Same as before — parent begins and prints its message.'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'exec' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['CREATED', 'status-running'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin'],
+                        title: '🧵 pthread_create — child spawned', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'Child thread is created. But this time, the <strong>OS scheduler lets the child run first</strong> before the parent continues!'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 2, hl: 'exec-child' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin', 'child'],
+                        title: '⚡ Child runs first — prints "child"', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'The OS scheduled the child before the parent gets to <code>thr_join()</code>. The child prints and now will try to signal completion.'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 5, hl: 'exec-child', lockBadge: 'has-lock' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔒', 'Locked by CHILD', 'mutex-locked'], done: [0, 'Child NOT finished', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin', 'child'],
+                        title: '🔒 Child locks mutex', tag: 'LOCK', tagClass: 'tag-lock',
+                        body: 'Child acquires the lock. Parent isn\'t even trying to lock yet — it hasn\'t reached <code>thr_join()</code>.'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 6, hl: 'exec-child', lockBadge: 'has-lock' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔒', 'Locked by CHILD', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin', 'child'],
+                        title: '✅ done = 1', tag: 'KEY', tagClass: 'tag-key',
+                        body: '<strong>This is why <code>done</code> is essential!</strong> The child sets the flag <em>before</em> the parent even checks it. Without this flag, the parent would go to sleep waiting for a signal that was <strong>already sent and lost</strong>.'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 7, hl: 'exec-child', lockBadge: 'has-lock' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔒', 'Locked by CHILD', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['📢', 'Signal sent (nobody listening!)', 'cond-signaled'], console: ['parent: begin', 'child'],
+                        title: '📢 cond_signal — but nobody is waiting!', tag: 'DANGER', tagClass: 'tag-danger',
+                        body: 'The signal is <strong>LOST</strong>! Nobody is sleeping on the condition variable right now. Condition variable signals are <strong>not queued</strong> — if no one is waiting, the signal vanishes.<br><br>⚠️ Without the <code>done</code> flag, the parent would later call <code>cond_wait</code> and sleep <strong>forever</strong>. But because <code>done = 1</code> is already set, the parent will see it and skip the wait!'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 8, hl: 'exec-child', lockBadge: 'no-lock' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['💨', 'Signal was lost (no one waiting)', ''], console: ['parent: begin', 'child'],
+                        title: '🔓 Child unlocks and finishes', tag: 'UNLOCK', tagClass: 'tag-unlock',
+                        body: 'Child releases the lock and returns. The child thread is completely done. Now the parent resumes...'
+                    },
+                    {
+                        parentHL: { line: 7, hl: 'exec', lockBadge: 'has-lock' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔒', 'Locked by PARENT', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['😴', 'Idle', ''], console: ['parent: begin', 'child'],
+                        title: '🔒 Parent locks mutex (in thr_join)', tag: 'LOCK', tagClass: 'tag-lock',
+                        body: 'Parent finally reaches <code>thr_join()</code> and locks the mutex. The child already unlocked it, so parent acquires immediately.'
+                    },
+                    {
+                        parentHL: { line: 8, hl: 'exec', lockBadge: 'has-lock' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔒', 'Locked by PARENT', 'mutex-locked'], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['😴', 'Idle', ''], console: ['parent: begin', 'child'],
+                        title: '🔍 Check: done == 0?  → NO! Skip wait! ✅', tag: 'KEY', tagClass: 'tag-key',
+                        body: '🎉 <strong>The <code>done</code> flag saves us!</strong> Parent checks <code>done</code> and sees it\'s already <code>1</code>. The <code>while</code> condition is <strong>false</strong>, so we <strong>skip <code>cond_wait</code> entirely!</strong><br><br>Without the <code>done</code> flag, the parent would have called <code>cond_wait</code> and slept <strong>forever</strong> — because the signal was already sent and lost.'
+                    },
+                    {
+                        parentHL: { line: 12, hl: 'exec', lockBadge: 'no-lock' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['✅', 'Completed', ''], console: ['parent: begin', 'child'],
+                        title: '🔓 Parent unlocks', tag: 'UNLOCK', tagClass: 'tag-unlock',
+                        body: 'Parent releases the mutex and exits <code>thr_join()</code>.'
+                    },
+                    {
+                        parentHL: { line: 14, hl: 'exec' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔓', 'Unlocked', ''], done: [1, 'Child IS finished! ✓', 'done-true'],
+                        cond: ['✅', 'Completed', ''], console: ['parent: begin', 'child', 'parent: end'],
+                        title: '🖨️ "parent: end" — SUCCESS again!', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: '🎉 Even though the child ran first and the signal was lost, the <code>done</code> flag ensured correctness. <strong>Both orderings produce the correct result!</strong>'
+                    },
+                ]
+            },
+
+            'no-done': {
+                name: '💀 Bug: Without done Flag',
+                steps: [
+                    {
+                        parentHL: { line: 2, hl: 'exec' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['NOT CREATED', 'status-idle'],
+                        mutex: ['🔓', 'Unlocked', ''], done: ['—', 'No done flag exists!', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin'],
+                        title: '💀 BUG SCENARIO: No done flag!', tag: 'DANGER', tagClass: 'tag-danger',
+                        body: 'What happens if we <strong>remove the <code>done</code> variable</strong> and just use <code>cond_wait</code> / <code>cond_signal</code> alone? Let\'s see when the child runs first...'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'exec' }, childHL: null,
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['CREATED', 'status-running'],
+                        mutex: ['🔓', 'Unlocked', ''], done: ['—', 'No done flag exists!', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin'],
+                        title: '🧵 Child spawned, runs first', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'Child is created and the OS lets it run first...'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 2, hl: 'exec-child' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔓', 'Unlocked', ''], done: ['—', 'No done flag exists!', ''],
+                        cond: ['😴', 'No one waiting', ''], console: ['parent: begin', 'child'],
+                        title: '🧵 Child prints "child"', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'Child runs and prints its message.'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 7, hl: 'exec-child' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['RUNNING', 'status-running'],
+                        mutex: ['🔓', 'Unlocked', ''], done: ['—', 'No done flag exists!', ''],
+                        cond: ['📢', 'Signal sent — NOBODY LISTENING!', 'cond-signaled'], console: ['parent: begin', 'child'],
+                        title: '📢 Signal sent — but nobody is waiting!', tag: 'DANGER', tagClass: 'tag-danger',
+                        body: 'Child signals the condition variable. But the parent hasn\'t called <code>cond_wait</code> yet. <strong>The signal is lost forever!</strong> Condition variables don\'t queue signals.'
+                    },
+                    {
+                        parentHL: { line: 4, hl: 'done' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['PAUSED', 'status-waiting'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔓', 'Unlocked', ''], done: ['—', 'No done flag exists!', ''],
+                        cond: ['💨', 'Signal was lost', ''], console: ['parent: begin', 'child'],
+                        title: '🧵 Child finishes completely', tag: 'CONCEPT', tagClass: 'tag-concept',
+                        body: 'Child thread is done and gone. The signal it sent has vanished. Now the parent resumes...'
+                    },
+                    {
+                        parentHL: { line: 7, hl: 'exec', lockBadge: 'has-lock' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['RUNNING', 'status-running'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔒', 'Locked by PARENT', 'mutex-locked'], done: ['—', 'No done flag to check!', ''],
+                        cond: ['💨', 'Signal was lost', ''], console: ['parent: begin', 'child'],
+                        title: '🔒 Parent locks mutex', tag: 'LOCK', tagClass: 'tag-lock',
+                        body: 'Parent reaches <code>thr_join()</code> and locks the mutex.'
+                    },
+                    {
+                        parentHL: { line: 9, hl: 'sleep' },
+                        childHL: { line: 10, hl: 'done' },
+                        parentStatus: ['💀 SLEEPING FOREVER', 'status-sleeping'], childStatus: ['✅ DONE', 'status-done'],
+                        mutex: ['🔓', 'Released by cond_wait', ''], done: ['—', 'Nothing to check!', ''],
+                        cond: ['💀', 'Waiting... nobody will ever signal', ''], console: ['parent: begin', 'child'],
+                        title: '💀 cond_wait — DEADLOCK! Parent sleeps FOREVER!', tag: 'DANGER', tagClass: 'tag-danger',
+                        body: '☠️ <strong>DEADLOCK!</strong> Without the <code>done</code> flag, there\'s no <code>while (done == 0)</code> check to skip the wait. The parent <strong>unconditionally calls <code>cond_wait</code></strong> and goes to sleep.<br><br>The child already sent its signal and is gone. <strong>Nobody will ever signal again.</strong> The parent sleeps forever. The program hangs. <code>"parent: end"</code> is never printed.<br><br>💡 <strong>This is exactly why the <code>done</code> flag is required</strong> — it remembers that the event already happened, so the parent can skip the wait.'
+                    },
+                ]
+            }
+        };
+
+        // ============================================================
+        // STATE
+        // ============================================================
+        let currentScenario = 'normal';
+        let currentStep = -1;
+        let autoPlayInterval = null;
+
+        function getSteps() {
+            return scenarios[currentScenario].steps;
+        }
+
+        // ============================================================
+        // RENDER CODE PANELS
+        // ============================================================
+        function renderCodePanels() {
+            const parentEl = document.getElementById('parentCode');
+            const childEl = document.getElementById('childCode');
+
+            parentEl.innerHTML = parentLines.map((l, i) => `
+                <div class="code-line" id="parent-line-${i}">
+                    <span class="line-num">${l.num}</span>
+                    <span class="line-content">${l.code || '&nbsp;'}</span>
+                    <span class="lock-badge" id="parent-badge-${i}"></span>
+                </div>
+            `).join('');
+
+            childEl.innerHTML = childLines.map((l, i) => `
+                <div class="code-line" id="child-line-${i}">
+                    <span class="line-num">${l.num}</span>
+                    <span class="line-content">${l.code || '&nbsp;'}</span>
+                    <span class="lock-badge" id="child-badge-${i}"></span>
+                </div>
+            `).join('');
+        }
+
+        // ============================================================
+        // UPDATE DISPLAY FOR A STEP
+        // ============================================================
+        function updateDisplay() {
+            const steps = getSteps();
+
+            // Clear all highlights
+            document.querySelectorAll('.code-line').forEach(el => {
+                el.className = 'code-line';
+            });
+            document.querySelectorAll('.lock-badge').forEach(el => {
+                el.className = 'lock-badge';
+                el.textContent = '';
+            });
+
+            // Update panels active state
+            const parentPanel = document.getElementById('parentPanel');
+            const childPanel = document.getElementById('childPanel');
+            parentPanel.classList.remove('parent-active', 'child-active');
+            childPanel.classList.remove('parent-active', 'child-active');
+
+            if (currentStep < 0 || currentStep >= steps.length) {
+                document.getElementById('stepCounter').textContent = `Step 0 / ${steps.length}`;
+                document.getElementById('progressFill').style.width = '0%';
+                return;
+            }
+
+            const step = steps[currentStep];
+
+            // Highlight parent line
+            if (step.parentHL) {
+                const lineIdx = step.parentHL.line - 1;
+                const lineEl = document.getElementById(`parent-line-${lineIdx}`);
+                if (lineEl) {
+                    if (step.parentHL.hl === 'exec') lineEl.classList.add('highlight-exec');
+                    else if (step.parentHL.hl === 'exec-child') lineEl.classList.add('highlight-exec-child');
+                    else if (step.parentHL.hl === 'sleep') lineEl.classList.add('highlight-sleep');
+                    else if (step.parentHL.hl === 'done') lineEl.classList.add('highlight-done');
+
+                    if (step.parentHL.lockBadge) {
+                        const badge = document.getElementById(`parent-badge-${lineIdx}`);
+                        badge.classList.add('visible', step.parentHL.lockBadge);
+                        badge.textContent = step.parentHL.lockBadge === 'has-lock' ? '🔒 HAS LOCK' :
+                                          step.parentHL.lockBadge === 'no-lock' ? '🔓 NO LOCK' : '⏳ WAITING';
+                    }
+                }
+
+                if (step.parentHL.hl === 'exec' || step.parentHL.hl === 'sleep') {
+                    parentPanel.classList.add('parent-active');
+                }
+            }
+
+            // Highlight child line
+            if (step.childHL) {
+                const lineIdx = step.childHL.line - 1;
+                const lineEl = document.getElementById(`child-line-${lineIdx}`);
+                if (lineEl) {
+                    if (step.childHL.hl === 'exec-child') lineEl.classList.add('highlight-exec-child');
+                    else if (step.childHL.hl === 'exec') lineEl.classList.add('highlight-exec');
+                    else if (step.childHL.hl === 'done') lineEl.classList.add('highlight-done');
+
+                    if (step.childHL.lockBadge) {
+                        const badge = document.getElementById(`child-badge-${lineIdx}`);
+                        badge.classList.add('visible', step.childHL.lockBadge);
+                        badge.textContent = step.childHL.lockBadge === 'has-lock' ? '🔒 HAS LOCK' :
+                                          step.childHL.lockBadge === 'no-lock' ? '🔓 NO LOCK' : '⏳ WAITING';
+                    }
+                }
+
+                if (step.childHL.hl === 'exec-child') {
+                    childPanel.classList.add('child-active');
+                }
+            }
+
+            // Update statuses
+            const [pText, pClass] = step.parentStatus;
+            const parentStatusEl = document.getElementById('parentStatus');
+            parentStatusEl.textContent = pText;
+            parentStatusEl.className = `status ${pClass}`;
+
+            const [cText, cClass] = step.childStatus;
+            const childStatusEl = document.getElementById('childStatus');
+            childStatusEl.textContent = cText;
+            childStatusEl.className = `status ${cClass}`;
+
+            // Update shared state
+            const [mVal, mDetail, mClass] = step.mutex;
+            const mutexCard = document.getElementById('mutexCard');
+            document.getElementById('mutexValue').textContent = mVal;
+            document.getElementById('mutexDetail').textContent = mDetail;
+            mutexCard.className = `state-card ${mClass}`;
+
+            const [dVal, dDetail, dClass] = step.done;
+            const doneCard = document.getElementById('doneCard');
+            const doneValEl = document.getElementById('doneValue');
+            doneValEl.textContent = dVal;
+            doneValEl.style.color = dVal === 1 ? 'var(--accent-green)' : dVal === 0 ? 'var(--accent-red)' : 'var(--text-muted)';
+            document.getElementById('doneDetail').textContent = dDetail;
+            doneCard.className = `state-card ${dClass}`;
+
+            const [cValCV, cDetailCV, cClassCV] = step.cond;
+            const condCard = document.getElementById('condCard');
+            document.getElementById('condValue').textContent = cValCV;
+            document.getElementById('condDetail').textContent = cDetailCV;
+            condCard.className = `state-card ${cClassCV}`;
+
+            // Console output
+            const consoleEl = document.getElementById('consoleOutput');
+            consoleEl.innerHTML = step.console.map((line, i) => `
+                <div class="console-line visible" style="animation-delay: ${i * 0.1}s">$ ${line}</div>
+            `).join('');
+
+            // Explanation
+            const expPanel = document.getElementById('explanationPanel');
+            const tagHTML = step.tag ? `<span class="exp-tag ${step.tagClass}">${step.tag}</span>` : '';
+            document.getElementById('expTitle').innerHTML = `${tagHTML} ${step.title}`;
+            document.getElementById('expBody').innerHTML = step.body;
+            expPanel.className = `explanation-panel${step.tagClass === 'tag-key' || step.tagClass === 'tag-danger' ? ' highlight-why' : ''}`;
+
+            // Step counter & progress
+            document.getElementById('stepCounter').textContent = `Step ${currentStep + 1} / ${steps.length}`;
+            document.getElementById('progressFill').style.width = `${((currentStep + 1) / steps.length) * 100}%`;
+
+            // Button states
+            document.getElementById('prevBtn').disabled = currentStep <= 0;
+            document.getElementById('resetBtn').disabled = currentStep <= 0;
+            document.getElementById('nextBtn').disabled = currentStep >= steps.length - 1;
+            document.getElementById('endBtn').disabled = currentStep >= steps.length - 1;
+        }
+
+        // ============================================================
+        // CONTROLS
+        // ============================================================
+        function nextStep() {
+            const steps = getSteps();
+            if (currentStep < steps.length - 1) {
+                currentStep++;
+                updateDisplay();
+            } else {
+                stopAutoPlay();
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 0) {
+                currentStep--;
+                updateDisplay();
+            }
+        }
+
+        function resetSteps() {
+            stopAutoPlay();
+            currentStep = -1;
+            updateDisplay();
+            // Reset explanation
+            document.getElementById('expTitle').innerHTML = '👋 Press ▶ or click Next to begin';
+            document.getElementById('expBody').innerHTML = 'Walk through the code line-by-line to see exactly when the mutex is locked, who holds it, and why <code>done</code> is needed.';
+            document.getElementById('explanationPanel').className = 'explanation-panel';
+            // Reset statuses
+            document.getElementById('parentStatus').textContent = 'IDLE';
+            document.getElementById('parentStatus').className = 'status status-idle';
+            document.getElementById('childStatus').textContent = 'NOT CREATED';
+            document.getElementById('childStatus').className = 'status status-idle';
+            // Reset shared state
+            document.getElementById('mutexValue').textContent = '🔓';
+            document.getElementById('mutexDetail').textContent = 'Unlocked';
+            document.getElementById('mutexCard').className = 'state-card';
+            document.getElementById('doneValue').textContent = '0';
+            document.getElementById('doneValue').style.color = 'var(--accent-red)';
+            document.getElementById('doneDetail').textContent = 'Child NOT finished';
+            document.getElementById('doneCard').className = 'state-card';
+            document.getElementById('condValue').textContent = '😴';
+            document.getElementById('condDetail').textContent = 'No one waiting';
+            document.getElementById('condCard').className = 'state-card';
+            document.getElementById('consoleOutput').innerHTML = '';
+            // Reset panels
+            document.getElementById('parentPanel').classList.remove('parent-active', 'child-active');
+            document.getElementById('childPanel').classList.remove('parent-active', 'child-active');
+        }
+
+        function goToEnd() {
+            stopAutoPlay();
+            currentStep = getSteps().length - 1;
+            updateDisplay();
+        }
+
+        function toggleAutoPlay() {
+            if (autoPlayInterval) {
+                stopAutoPlay();
+            } else {
+                startAutoPlay();
+            }
+        }
+
+        function startAutoPlay() {
+            const speed = 3500 - parseInt(document.getElementById('speedSlider').value);
+            document.getElementById('playBtn').textContent = '⏸';
+            if (currentStep < 0) currentStep = -1;
+            autoPlayInterval = setInterval(() => {
+                const steps = getSteps();
+                if (currentStep < steps.length - 1) {
+                    currentStep++;
+                    updateDisplay();
+                } else {
+                    stopAutoPlay();
+                }
+            }, speed);
+        }
+
+        function stopAutoPlay() {
+            if (autoPlayInterval) {
+                clearInterval(autoPlayInterval);
+                autoPlayInterval = null;
+            }
+            document.getElementById('playBtn').textContent = '▶';
+        }
+
+        function switchScenario(scenario) {
+            currentScenario = scenario;
+            document.querySelectorAll('.scenario-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.scenario === scenario);
+            });
+            resetSteps();
+        }
+
+        // Speed slider change
+        document.getElementById('speedSlider').addEventListener('input', () => {
+            if (autoPlayInterval) {
+                stopAutoPlay();
+                startAutoPlay();
+            }
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextStep(); }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); prevStep(); }
+            if (e.key === 'r' || e.key === 'R') { resetSteps(); }
+            if (e.key === 'p' || e.key === 'P') { toggleAutoPlay(); }
+        });
+
+        // Init
+        renderCodePanels();
+        updateDisplay();
+    </script>
+</body>
+</html>
