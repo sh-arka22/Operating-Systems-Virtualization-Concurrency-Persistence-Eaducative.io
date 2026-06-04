@@ -301,3 +301,168 @@ sequenceDiagram
 ---
 
 *Source: Educative.io — Operating Systems: Virtualization, Concurrency & Persistence — Chapter 20: Concurrency and Threads — Lesson: One More Problem: Waiting For Another*
+
+
+---
+
+## 🧪 Exercise — Simulator Questions & Answers
+
+> **Tool:** `x86.py` — the OSTEP thread simulator
+> **Programs used:** `loop.s`, `looping-race-nolock.s`, `wait-for-me.s`
+
+---
+
+### Q1. Run `loop.s` with a single thread (`-t 1 -i 100 -R dx`). What will `%dx` be?
+
+**Command:** `./x86.py -p loop.s -t 1 -i 100 -R dx`
+
+**Answer:**
+
+`loop.s` decrements `%dx` in a loop until it reaches 0. With a single thread and `-i 100` (interrupt every 100 instructions), there are no race conditions. Starting from the default initial value of `%dx = 0`, the loop body subtracts 1 and tests; since `%dx` starts at 0, the loop exits immediately. Use `-c` to confirm.
+
+- **`%dx` = 0** throughout (loop does not execute because `%dx` starts at 0 and the test-and-branch exits immediately).
+
+---
+
+### Q2. Run `loop.s` with two threads (`-t 2 -i 100 -a dx=3,dx=3 -R dx`). What values does `%dx` see? Is there a race?
+
+**Command:** `./x86.py -p loop.s -t 2 -i 100 -a dx=3,dx=3 -R dx`
+
+**Answer:**
+
+Each thread gets its **own private register set**, so `%dx` is not shared — it is a per-thread register. Thread 0 starts with `%dx=3` and counts down: 3, 2, 1, 0. Thread 1 does the same independently.
+
+- **No race condition** — `%dx` is a register, not shared memory. Each thread has its own copy.
+- The values you will see for each thread are: **3, 2, 1, 0** (counting down to 0).
+
+---
+
+### Q3. Run `loop.s` with random interrupt intervals (`-t 2 -i 3 -r -a dx=3,dx=3 -R dx`). Does interrupt frequency change anything?
+
+**Command:** `./x86.py -p loop.s -t 2 -i 3 -r -a dx=3,dx=3 -R dx`
+
+**Answer:**
+
+Since `%dx` is a **per-thread register** (not shared memory), the interrupt frequency and interleaving do **not** change the final result. Each thread still counts its own `%dx` from 3 down to 0 correctly.
+
+- **No**, the interrupt frequency does not matter for `loop.s` — registers are private to each thread. The result is always correct regardless of scheduling.
+
+---
+
+### Q4. Run `looping-race-nolock.s` with one thread (`-t 1 -M 2000`). What is `value` throughout the run?
+
+**Command:** `./x86.py -p looping-race-nolock.s -t 1 -M 2000`
+
+**Answer:**
+
+With a single thread, there is no concurrency issue. The program loads `value` from address 2000, increments it, and stores it back — atomically from the perspective of a single thread. Starting at `value = 0`, after each iteration it increments by 1.
+
+- `value` at address 2000 increments from **0 → 1** (default loop count is 1, so it ends at **1**).
+- Use `-c` to verify: the memory trace will show `2000 = 0` before the store and `2000 = 1` after.
+
+---
+
+### Q5. Run `looping-race-nolock.s` with two threads (`-t 2 -a bx=3 -M 2000`). What is the final value? Why does each thread loop 3 times?
+
+**Command:** `./x86.py -p looping-race-nolock.s -t 2 -a bx=3 -M 2000`
+
+**Answer:**
+
+`%bx` is the loop counter — each thread loops `bx+1 = 4` times... actually `bx=3` means loop 3 times (the loop decrements `%bx` until 0). Each thread does 3 load-increment-store operations on the **shared** `value` at address 2000.
+
+- **Expected (correct) result:** `value = 6` (2 threads × 3 increments each).
+- **Actual result may be less than 6** due to the race condition — if one thread loads `value`, gets interrupted, and the other thread also loads and stores before the first thread stores, the first thread overwrites the second thread's update (lost update problem).
+- The final value will be **between 2 and 6** depending on the interleaving. With `-i 100` (default), likely **6** since each thread completes without interruption.
+
+---
+
+### Q6. Run with random interrupts (`-t 2 -M 2000 -i 4 -r -s 0`). What is the final value? Where is the critical section?
+
+**Command:** `./x86.py -p looping-race-nolock.s -t 2 -M 2000 -i 4 -r -s 0`
+
+**Answer:**
+
+With small, random interrupt intervals, context switches can occur **inside** the load-increment-store sequence, creating a race condition.
+
+**The critical section** is the three-instruction sequence:
+```
+mov 2000, %ax   # load value
+add $1, %ax     # increment
+mov %ax, 2000   # store value back
+```
+A race occurs if Thread 1 is interrupted **between the load and the store** — Thread 2 then loads the old value, both compute `value+1`, and both store back `value+1` instead of `value+2`. The timing matters: interrupts **inside** the critical section (between load and store) cause lost updates.
+
+- With seed `-s 0`, use `-c` to trace the interleaving and determine the exact final value.
+- The final value can be **less than 6** (e.g., 4 or 5) due to lost updates.
+
+---
+
+### Q7. Use `-a bx=1 -t 2 -M 2000` and vary `-i`. Which interrupt intervals guarantee the correct result?
+
+**Command:** `./x86.py -p looping-race-nolock.s -a bx=1 -t 2 -M 2000 -i <N>`
+
+**Answer:**
+
+The critical section is **3 instructions** long (load, add, store). A race occurs only when a context switch happens **inside** those 3 instructions.
+
+- **Safe interrupt intervals:** Any interval that causes interrupts **only outside** the critical section. Specifically, if `i >= 3` AND the interrupt always lands between complete iterations (e.g., `-i 3` or multiples that align with the 3-instruction critical section boundary) are safe.
+- **Unsafe intervals:** `-i 1` or `-i 2` — interrupts that can split the load-add-store sequence.
+- **Key insight:** With `bx=1`, each thread does 1 iteration = 3 critical instructions + loop overhead. An interrupt interval of **3 or more** that lands cleanly after the store is safe.
+
+---
+
+### Q8. Use `-a bx=100 -t 2 -M 2000` and vary `-i`. Which intervals give correct results?
+
+**Command:** `./x86.py -p looping-race-nolock.s -a bx=100 -t 2 -M 2000 -i <N>`
+
+**Answer:**
+
+With `bx=100`, each thread does 100 iterations. The total instructions per thread = ~400 (4 instructions per loop: load, add, store, loop-back).
+
+- **Correct result:** `value = 200`
+- **Safe intervals:** Very large values of `-i` (e.g., `i >= 400`) that let each thread complete entirely before the other runs, eliminating interleaving. Or intervals that always interrupt between full iterations of the critical section.
+- **Surprising (incorrect) results:** Small `-i` values (1–3) will frequently split the critical section, causing many lost updates. The result could be as low as **101** (worst case, almost all updates from one thread are lost).
+- **Key insight:** The larger `bx` is, the more opportunities for races at any small interrupt interval. Only very large intervals (or a lock) guarantee correctness.
+
+---
+
+### Q9. Run `wait-for-me.s` (`-a ax=1,ax=0 -R ax -M 2000`). How is memory location 2000 used?
+
+**Command:** `./x86.py -p wait-for-me.s -a ax=1,ax=0 -R ax -M 2000`
+
+**Answer:**
+
+In `wait-for-me.s`, `%ax` determines the role of each thread:
+- Thread 0 has `ax=1` → it is the **signaler** (child): it does its work and then sets `mem[2000] = 1` to signal completion.
+- Thread 1 has `ax=0` → it is the **waiter** (parent): it spins in a loop checking `mem[2000]` until it becomes 1.
+
+**Memory location 2000 is used as a shared flag / condition variable:**
+- Initially `mem[2000] = 0` (not done).
+- The signaler sets `mem[2000] = 1` when finished.
+- The waiter spins reading `mem[2000]` in a loop (spin-wait) until it sees the value 1.
+
+This demonstrates **spin-waiting** for synchronization — correct but CPU-wasteful.
+
+---
+
+### Q10. Swap roles (`-a ax=0,ax=1 -R ax -M 2000`). How does thread behavior change? Is spin-waiting efficient?
+
+**Command:** `./x86.py -p wait-for-me.s -a ax=0,ax=1 -R ax -M 2000`
+
+**Answer:**
+
+With the flags swapped:
+- Thread 0 has `ax=0` → it is now the **waiter**: it immediately starts spinning on `mem[2000]`.
+- Thread 1 has `ax=1` → it is now the **signaler**: it will eventually set `mem[2000] = 1`.
+
+**Thread behavior:**
+- Thread 0 (waiter) runs first and spins in a tight loop checking `mem[2000]` — **consuming CPU cycles doing no useful work**.
+- When Thread 1 eventually runs, it sets `mem[2000] = 1`, and Thread 0 exits the spin loop.
+
+**CPU Efficiency — Spin-waiting is very inefficient:**
+- The waiter thread burns CPU cycles in a hot loop polling memory.
+- The more frequent the interrupts (small `-i`), the more often Thread 0 gets to run, wasting more CPU time spinning.
+- **Decreasing interrupt interval** (smaller `-i`) makes it worse — Thread 0 spins more often before Thread 1 gets a chance to signal.
+- **Increasing interrupt interval** (larger `-i`) could mean Thread 0 spins for a long time before being interrupted, but Thread 1 gets to run and signal sooner — still wasteful.
+
+**The fix:** Replace spin-waiting with `pthread_cond_wait()` — the OS puts the waiting thread to sleep (off the CPU) until signaled, eliminating wasted CPU cycles. This is exactly the lesson of this chapter.
